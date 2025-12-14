@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { CalendarProvider, WeekCalendar, LocaleConfig } from "react-native-calendars";
+import { CalendarProvider, LocaleConfig } from "react-native-calendars";
 import { Ionicons } from "@expo/vector-icons";
 import { Swipeable, GestureHandlerRootView } from "react-native-gesture-handler";
 import TaskTypeModal from "../components/TaskTypeModal";
@@ -95,15 +95,23 @@ export default function CalendarScreen() {
     setDynamicModalVisible(true);
   };
 
-  const handleDeleteTask = (index) => {
+  const handleDeleteTask = (task, index) => {
+    const isSameTask = (a, b) => {
+      return (
+        a.type === b.type &&
+        (a.title || "") === (b.title || "") &&
+        (a.time || "") === (b.time || "") &&
+        (a.description || "") === (b.description || "")
+      );
+    };
+
     Alert.alert(
-      "Eliminar Tarea",
-      "¿Estás seguro de que quieres eliminar esta tarea?",
+      "Eliminar rutina",
+      "¿Qué deseas eliminar?",
       [
         { text: "Cancelar", style: "cancel" },
         {
-          text: "Eliminar",
-          style: "destructive",
+          text: "Solo este día",
           onPress: () => {
             const newTasks = { ...tasks };
             if (newTasks[selectedDate]) {
@@ -115,6 +123,23 @@ export default function CalendarScreen() {
               saveTasks(newTasks);
             }
           }
+        },
+        {
+          text: "Todas las repeticiones",
+          style: "destructive",
+          onPress: () => {
+            const newTasks = { ...tasks };
+
+            Object.keys(newTasks).forEach((dateKey) => {
+              newTasks[dateKey] = newTasks[dateKey].filter((t) => !isSameTask(t, task));
+              if (newTasks[dateKey].length === 0) {
+                delete newTasks[dateKey];
+              }
+            });
+
+            setTasks(newTasks);
+            saveTasks(newTasks);
+          }
         }
       ]
     );
@@ -123,9 +148,22 @@ export default function CalendarScreen() {
   const toggleTaskDone = (index) => {
     const newTasks = { ...tasks };
     if (newTasks[selectedDate]) {
-      newTasks[selectedDate][index].done = !newTasks[selectedDate][index].done;
+      const wasDone = newTasks[selectedDate][index].done;
+      newTasks[selectedDate][index].done = !wasDone;
       setTasks(newTasks);
       saveTasks(newTasks);
+
+      if (!wasDone) {
+        const allDone = newTasks[selectedDate].length > 0 &&
+          newTasks[selectedDate].every(t => t.done);
+
+        if (allDone) {
+          Alert.alert(
+            "¡Felicidades!",
+            "Has completado todas tus actividades de hoy. ¡Gracias por tu compromiso contigo mismo!"
+          );
+        }
+      }
     }
   };
 
@@ -146,8 +184,6 @@ export default function CalendarScreen() {
       }
     }
 
-    const frequency = taskObj.frequency || "once";
-
     const formatDate = (date) => {
       const y = date.getFullYear();
       const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -157,6 +193,54 @@ export default function CalendarScreen() {
 
     const [year, month, day] = targetDate.split('-').map(Number);
     const startDate = new Date(year, month - 1, day);
+
+    const frequency = taskObj.frequency || "once";
+
+    const isSameTask = (a, b) => {
+      return (
+        a.type === b.type &&
+        (a.title || "") === (b.title || "") &&
+        (a.time || "") === (b.time || "") &&
+        (a.description || "") === (b.description || "")
+      );
+    };
+
+    // Frecuencia en días específicos de la semana
+    if (frequency === "specificDays" && Array.isArray(taskObj.daysOfWeek) && taskObj.daysOfWeek.length > 0) {
+      const weeksToGenerate = 26; // ~6 meses
+
+      for (let w = 0; w < weeksToGenerate; w++) {
+        const weekStart = new Date(startDate);
+        weekStart.setDate(startDate.getDate() + (w * 7));
+
+        taskObj.daysOfWeek.forEach((dow) => {
+          const baseDow = weekStart.getDay(); // 0 (Dom) - 6 (Sáb)
+          const diff = ((dow - baseDow) + 7) % 7;
+
+          const currentDate = new Date(weekStart);
+          currentDate.setDate(weekStart.getDate() + diff);
+
+          const currentString = formatDate(currentDate);
+
+          if (!newTasks[currentString]) {
+            newTasks[currentString] = [];
+          }
+
+          const currentTask = { ...taskObj };
+
+          const exists = newTasks[currentString].some((t) => isSameTask(t, currentTask));
+          if (!exists) {
+            newTasks[currentString].push(currentTask);
+          }
+        });
+      }
+
+      setTasks(newTasks);
+      saveTasks(newTasks);
+      setDynamicModalVisible(false);
+      setEditingTask(null);
+      return;
+    }
 
     let occurrences = 1;
     if (frequency === "daily") occurrences = 365;
@@ -195,41 +279,16 @@ export default function CalendarScreen() {
         }
       }
 
-      newTasks[currentString].push(currentTask);
+      const exists = newTasks[currentString].some((t) => isSameTask(t, currentTask));
+      if (!exists) {
+        newTasks[currentString].push(currentTask);
+      }
     }
 
     setTasks(newTasks);
     saveTasks(newTasks);
     setDynamicModalVisible(false);
     setEditingTask(null);
-  };
-
-  // Renderizado de acciones al deslizar (Swipe)
-  const renderRightActions = (progress, dragX, item, index) => {
-    const trans = dragX.interpolate({
-      inputRange: [-100, 0],
-      outputRange: [1, 0],
-      extrapolate: 'clamp',
-    });
-
-    return (
-      <View style={styles.rightActions}>
-        <TouchableOpacity
-          style={[styles.actionBtn, { backgroundColor: "#5B9FED" }]}
-          onPress={() => handleEditTask(item, index)}
-        >
-          <Ionicons name="create-outline" size={22} color="#fff" />
-          <Text style={styles.actionText}>Editar</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.actionBtn, { backgroundColor: "#FF5757" }]}
-          onPress={() => handleDeleteTask(index)}
-        >
-          <Ionicons name="trash-outline" size={22} color="#fff" />
-          <Text style={styles.actionText}>Borrar</Text>
-        </TouchableOpacity>
-      </View>
-    );
   };
 
   const renderTaskItem = ({ item, index }) => {
@@ -239,55 +298,65 @@ export default function CalendarScreen() {
 
     return (
       <Swipeable
-        renderRightActions={(progress, dragX) =>
-          renderRightActions(progress, dragX, item, index)
-        }
+        renderRightActions={() => null}
+        onSwipeableOpen={(direction) => {
+          // Deslizar hacia la izquierda (mostrando acciones a la derecha) borra la tarea
+          if (direction === 'right') {
+            handleDeleteTask(item, index);
+          }
+        }}
       >
         <View style={[styles.taskCard, { borderLeftColor: cardColor, opacity: isDone ? 0.7 : 1 }]}>
-          <View style={[styles.iconContainer, { backgroundColor: cardColor + '15' }]}>
-            <Ionicons name={config.icon} size={26} color={cardColor} />
-          </View>
+          <TouchableOpacity
+            style={styles.taskMain}
+            activeOpacity={0.9}
+            onPress={() => handleEditTask(item, index)}
+          >
+            <View style={[styles.iconContainer, { backgroundColor: cardColor + '15' }]}>
+              <Ionicons name={config.icon} size={26} color={cardColor} />
+            </View>
 
-          <View style={styles.taskContent}>
-            <Text style={[styles.taskTitle, isDone && styles.taskTitleDone]}>
-              {item.title || config.label}
-            </Text>
+            <View style={styles.taskContent}>
+              <Text style={[styles.taskTitle, isDone && styles.taskTitleDone]}>
+                {item.title || config.label}
+              </Text>
 
-            {/* Detalles específicos según el tipo */}
-            {item.time && (
-              <View style={styles.detailRow}>
-                <Ionicons name="time-outline" size={14} color="#7A8A99" style={styles.detailIcon} />
-                <Text style={styles.taskDetail}>{item.time}</Text>
-              </View>
-            )}
-            {item.distance && (
-              <View style={styles.detailRow}>
-                <Ionicons name="footsteps-outline" size={14} color="#7A8A99" style={styles.detailIcon} />
-                <Text style={styles.taskDetail}>{item.distance} km</Text>
-              </View>
-            )}
-            {item.liters && (
-              <View style={styles.detailRow}>
-                <Ionicons name="water-outline" size={14} color="#7A8A99" style={styles.detailIcon} />
-                <Text style={styles.taskDetail}>{item.liters} L</Text>
-              </View>
-            )}
-            {item.book && (
-              <View style={styles.detailRow}>
-                <Ionicons name="book-outline" size={14} color="#7A8A99" style={styles.detailIcon} />
-                <Text style={styles.taskDetail}>{item.book}</Text>
-              </View>
-            )}
-            {item.shoppingList && (
-              <View style={styles.detailRow}>
-                <Ionicons name="cart-outline" size={14} color="#7A8A99" style={styles.detailIcon} />
-                <Text style={styles.taskDetail}>{item.shoppingList.length} items</Text>
-              </View>
-            )}
-            {item.description && (
-              <Text style={styles.taskDesc} numberOfLines={1}>{item.description}</Text>
-            )}
-          </View>
+              {/* Detalles específicos según el tipo */}
+              {item.time && (
+                <View style={styles.detailRow}>
+                  <Ionicons name="time-outline" size={14} color="#7A8A99" style={styles.detailIcon} />
+                  <Text style={styles.taskDetail}>{item.time}</Text>
+                </View>
+              )}
+              {item.distance && (
+                <View style={styles.detailRow}>
+                  <Ionicons name="footsteps-outline" size={14} color="#7A8A99" style={styles.detailIcon} />
+                  <Text style={styles.taskDetail}>{item.distance} km</Text>
+                </View>
+              )}
+              {item.liters && (
+                <View style={styles.detailRow}>
+                  <Ionicons name="water-outline" size={14} color="#7A8A99" style={styles.detailIcon} />
+                  <Text style={styles.taskDetail}>{item.liters} L</Text>
+                </View>
+              )}
+              {item.book && (
+                <View style={styles.detailRow}>
+                  <Ionicons name="book-outline" size={14} color="#7A8A99" style={styles.detailIcon} />
+                  <Text style={styles.taskDetail}>{item.book}</Text>
+                </View>
+              )}
+              {item.shoppingList && (
+                <View style={styles.detailRow}>
+                  <Ionicons name="cart-outline" size={14} color="#7A8A99" style={styles.detailIcon} />
+                  <Text style={styles.taskDetail}>{item.shoppingList.length} items</Text>
+                </View>
+              )}
+              {item.description && (
+                <Text style={styles.taskDesc} numberOfLines={1}>{item.description}</Text>
+              )}
+            </View>
+          </TouchableOpacity>
 
           <TouchableOpacity onPress={() => toggleTaskDone(index)} style={styles.checkBtn}>
             <Ionicons
@@ -322,10 +391,67 @@ export default function CalendarScreen() {
     }
   };
 
+  const getLongDateLabel = () => {
+    const selected = new Date(selectedDate + 'T00:00:00');
+    return selected.toLocaleDateString("es-ES", {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+  };
+
+  const tasksToday = tasks[selectedDate] || [];
+  const totalToday = tasksToday.length;
+  const completedToday = tasksToday.filter(t => t.done).length;
+
+  const getWeekDatesAroundSelected = () => {
+    const base = new Date(selectedDate + 'T00:00:00');
+    const dates = [];
+
+    for (let offset = -3; offset <= 3; offset++) {
+      const d = new Date(base);
+      d.setDate(base.getDate() + offset);
+
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const dateString = `${year}-${month}-${day}`;
+
+      dates.push({
+        key: dateString,
+        dateString,
+        date: d,
+        isToday: dateString === today,
+        isSelected: dateString === selectedDate,
+        dayNumber: d.getDate(),
+        weekdayShort: d.toLocaleDateString('es-ES', { weekday: 'short' })
+      });
+    }
+
+    return dates;
+  };
+
+  const weekDates = getWeekDatesAroundSelected();
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <StatusBar barStyle="dark-content" backgroundColor="#FAFBFC" />
+
+        {/* Encabezado superior con título y resumen del día */}
+        <View style={styles.screenHeader}>
+          <View>
+            <Text style={styles.screenTitle}>Tu agenda</Text>
+            <Text style={styles.screenSubtitle}>{getLongDateLabel()}</Text>
+          </View>
+
+          <View style={styles.summaryPill}>
+            <Ionicons name="checkmark-circle-outline" size={18} color="#4C8DFF" style={{ marginRight: 6 }} />
+            <Text style={styles.summaryText}>
+              {totalToday === 0 ? 'Sin tareas' : `${completedToday}/${totalToday} listas`}
+            </Text>
+          </View>
+        </View>
 
         <CalendarProvider
           date={selectedDate}
@@ -335,26 +461,48 @@ export default function CalendarScreen() {
             todayButtonTextColor: '#5B9FED',
           }}
         >
-          <WeekCalendar
-            firstDay={1}
-            theme={{
-              backgroundColor: '#FAFBFC',
-              calendarBackground: '#FAFBFC',
-              selectedDayBackgroundColor: '#5B9FED',
-              selectedDayTextColor: '#ffffff',
-              todayTextColor: '#5B9FED',
-              dayTextColor: '#2D3748',
-              textDisabledColor: '#CBD5E0',
-              arrowColor: '#5B9FED',
-              monthTextColor: '#2D3748',
-              textDayFontWeight: '500',
-              textMonthFontWeight: '700',
-              textDayHeaderFontWeight: '600',
-              textDayFontSize: 15,
-              textMonthFontSize: 17,
-              textDayHeaderFontSize: 13,
-            }}
-          />
+          <View style={styles.calendarCard}>
+            <View style={styles.customWeekContainer}>
+              {weekDates.map((d) => {
+                const isSelected = d.isSelected;
+                const isToday = d.isToday;
+
+                return (
+                  <TouchableOpacity
+                    key={d.key}
+                    style={[styles.weekDayItem, isSelected && styles.weekDayItemSelected]}
+                    onPress={() => setSelectedDate(d.dateString)}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        styles.weekDayName,
+                        isSelected && styles.weekDayNameSelected,
+                      ]}
+                    >
+                      {d.weekdayShort.charAt(0).toUpperCase() + d.weekdayShort.slice(1, 3)}
+                    </Text>
+                    <View
+                      style={[
+                        styles.weekDayCircle,
+                        isToday && styles.weekDayToday,
+                        isSelected && styles.weekDayCircleSelected,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.weekDayNumber,
+                          isSelected && styles.weekDayNumberSelected,
+                        ]}
+                      >
+                        {d.dayNumber}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
 
           <View style={styles.taskListContainer}>
             <View style={styles.dateHeaderContainer}>
@@ -426,10 +574,106 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FAFBFC",
   },
+  screenHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  screenTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#1A202C',
+    letterSpacing: -0.5,
+  },
+  screenSubtitle: {
+    marginTop: 4,
+    fontSize: 14,
+    color: '#718096',
+    textTransform: 'capitalize',
+  },
+  summaryPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E3EEFF',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  summaryText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1A365D',
+  },
+  calendarCard: {
+    marginHorizontal: 16,
+    marginTop: 4,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 10,
+    elevation: 3,
+    overflow: 'hidden',
+  },
+  weekCalendar: {
+    borderRadius: 18,
+  },
+  customWeekContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  weekDayItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+  },
+  weekDayItemSelected: {
+    transform: [{ translateY: -2 }],
+  },
+  weekDayName: {
+    fontSize: 11,
+    color: '#A0AEC0',
+    marginBottom: 6,
+    textTransform: 'capitalize',
+  },
+  weekDayNameSelected: {
+    color: '#2D3748',
+    fontWeight: '700',
+  },
+  weekDayCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  weekDayToday: {
+    borderWidth: 1.5,
+    borderColor: '#4C8DFF',
+  },
+  weekDayCircleSelected: {
+    backgroundColor: '#4C8DFF',
+  },
+  weekDayNumber: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#2D3748',
+  },
+  weekDayNumberSelected: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
   taskListContainer: {
     flex: 1,
     paddingHorizontal: 20,
-    marginTop: 20,
+    marginTop: 24,
   },
   dateHeaderContainer: {
     alignItems: "center",
@@ -463,6 +707,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 12,
     elevation: 4,
+  },
+  taskMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
   },
   checkBtn: {
     padding: 4,
@@ -579,31 +828,5 @@ const styles = StyleSheet.create({
     color: "#5B9FED",
     fontWeight: "700",
     letterSpacing: -0.2,
-  },
-  rightActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 14,
-    marginLeft: 8,
-    gap: 8,
-  },
-  actionBtn: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: 75,
-    height: '100%',
-    borderRadius: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  actionText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: 4,
-    letterSpacing: -0.1,
   },
 });

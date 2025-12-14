@@ -69,6 +69,7 @@ export default function DynamicTaskModal({
   const [newSubtask, setNewSubtask] = useState("");
   const [taskColor, setTaskColor] = useState(""); // Nuevo estado para color
   const [showFreqDropdown, setShowFreqDropdown] = useState(false); // Dropdown frecuencia
+  const [specificDays, setSpecificDays] = useState([]); // Días específicos de la semana
   
   // Estado para lista de compras
   const [shoppingList, setShoppingList] = useState([]);
@@ -93,6 +94,12 @@ export default function DynamicTaskModal({
         setSubtasks(initialData.subtasks);
       } else {
         setSubtasks([]);
+      }
+
+      if (initialData && initialData.daysOfWeek) {
+        setSpecificDays(initialData.daysOfWeek);
+      } else {
+        setSpecificDays([]);
       }
       
       if (initialDate) {
@@ -533,6 +540,7 @@ export default function DynamicTaskModal({
                           daily: "Diario",
                           weekly: type === "shopping" ? "Cada 8 días" : "Semanal",
                           biweekly: "Cada 15 días",
+                          specificDays: "Días específicos de la semana",
                           monthly: "Mensual",
                           yearly: "Anual"
                         };
@@ -546,13 +554,14 @@ export default function DynamicTaskModal({
                     <View style={styles.dropdownList}>
                       {(type === "shopping" 
                         ? ["once", "weekly", "biweekly", "monthly"] 
-                        : ["once", "daily", "weekly", "monthly", "yearly"]
+                        : ["once", "daily", "weekly", "specificDays", "monthly", "yearly"]
                       ).map((freq) => {
                         const labels = {
                           once: "Una vez",
                           daily: "Diario",
                           weekly: type === "shopping" ? "Cada 8 días" : "Semanal",
                           biweekly: "Cada 15 días",
+                          specificDays: "Días específicos de la semana",
                           monthly: "Mensual",
                           yearly: "Anual"
                         };
@@ -562,6 +571,12 @@ export default function DynamicTaskModal({
                             style={styles.dropdownItem}
                             onPress={() => {
                               setField("frequency", freq);
+                              if (freq !== "specificDays") {
+                                setSpecificDays([]);
+                              } else if (freq === "specificDays" && specificDays.length === 0) {
+                                // Por defecto L-V si no hay selección previa
+                                setSpecificDays([1, 2, 3, 4, 5]);
+                              }
                               setShowFreqDropdown(false);
                             }}
                           >
@@ -575,6 +590,54 @@ export default function DynamicTaskModal({
                     </View>
                   )}
                 </View>
+
+                {/* Días específicos de la semana */}
+                {form.frequency === "specificDays" && (
+                  <View style={styles.inputContainer}>
+                    <Text style={styles.label}>Días de la semana</Text>
+                    <View style={styles.weekDaysRow}>
+                      {[
+                        { value: 1, label: "L" }, // Lunes
+                        { value: 2, label: "M" }, // Martes
+                        { value: 3, label: "X" }, // Miércoles
+                        { value: 4, label: "J" }, // Jueves
+                        { value: 5, label: "V" }, // Viernes
+                        { value: 6, label: "S" }, // Sábado
+                        { value: 0, label: "D" }, // Domingo
+                      ].map((day) => {
+                        const isSelected = specificDays.includes(day.value);
+                        return (
+                          <TouchableOpacity
+                            key={day.value}
+                            style={[
+                              styles.weekDayChip,
+                              isSelected && styles.weekDayChipSelected,
+                            ]}
+                            onPress={() => {
+                              setSpecificDays((prev) =>
+                                prev.includes(day.value)
+                                  ? prev.filter((d) => d !== day.value)
+                                  : [...prev, day.value]
+                              );
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.weekDayChipText,
+                                isSelected && styles.weekDayChipTextSelected,
+                              ]}
+                            >
+                              {day.label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <Text style={styles.weekDaysHint}>
+                      Elige en qué días de la semana se repetirá esta rutina.
+                    </Text>
+                  </View>
+                )}
 
                 <View style={{height: 80}} /> 
               </ScrollView>
@@ -606,6 +669,10 @@ export default function DynamicTaskModal({
                       subtasks: subtasks,
                       color: taskColor
                     };
+
+                    if (form.frequency === "specificDays") {
+                      finalData.daysOfWeek = specificDays;
+                    }
                     
                     if (type === "shopping") {
                       finalData.shoppingList = shoppingList;
@@ -891,5 +958,40 @@ const styles = StyleSheet.create({
   subtaskText: {
     fontSize: 14,
     color: "#333",
+  },
+  // Días específicos de la semana
+  weekDaysRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 8,
+  },
+  weekDayChip: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#F5F7FA",
+    borderWidth: 1,
+    borderColor: "#E1E8ED",
+    marginHorizontal: 3,
+  },
+  weekDayChipSelected: {
+    backgroundColor: "#4C8DFF15",
+    borderColor: "#4C8DFF",
+  },
+  weekDayChipText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#718096",
+  },
+  weekDayChipTextSelected: {
+    color: "#1A202C",
+  },
+  weekDaysHint: {
+    marginTop: 8,
+    fontSize: 12,
+    color: "#A0AEC0",
   },
 });
